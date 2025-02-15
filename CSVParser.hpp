@@ -1,5 +1,4 @@
 
-#include <iostream>
 #include <vector>
 #include <fstream>
 #include <string>
@@ -67,7 +66,7 @@ namespace parser {
     void ConvertToArr(std::vector<IrisRow> &table, float *h_params, short int *h_species) {
 
         unsigned int rows = table.size();
-
+        
         for(unsigned int i = 0; i < rows; ++i) {
 
             h_params[i] = table[i].sepal_length;

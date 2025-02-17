@@ -63,7 +63,7 @@ namespace parser {
         return table;
     }    
 
-    void ConvertToArr(std::vector<IrisRow> &table, float *h_params, short int *h_species) {
+    void ConvertToArr(std::vector<IrisRow> &table, float *h_params, int *h_species) {
 
         unsigned int rows = table.size();
         

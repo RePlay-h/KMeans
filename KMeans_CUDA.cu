@@ -12,12 +12,13 @@ __global__ void sum_and_counts(
     int n, 
     int d, 
     int k) {
-
+    
+    // initialize shared memory
     extern __shared__ float shared[];
 
     float *s_centroids = shared;
     float *s_sums = &s_centroids[k*d];
-    float *s_counts = &s_sums[k];
+    float *s_counts = &s_sums[k*d];
 
     int tid = threadIdx.x;
     int idx = blockIdx.x * blockDim.x + tid;
@@ -37,6 +38,7 @@ __global__ void sum_and_counts(
     if(idx < n) {
         const int idxd = d * idx;
 
+        // calculate dist to the best centroid
         int best_class = -1;
         float dist;
         float min_dist = MAXFLOAT;
@@ -54,8 +56,11 @@ __global__ void sum_and_counts(
             }
         }
 
+        // update number of elements in a cluster
         atomicAdd(&s_counts[best_class], 1);
         
+        // sum of coords 
+        // It uses when we calculate new coords for clusters
         for(int i = 0; i < d; ++i) {
             atomicAdd(&s_sums[i + best_class * d], d_params[i + idxd]);
         }
@@ -84,30 +89,35 @@ __global__ void update_centroids(
 
     int idx = blockDim.x * blockIdx.x + threadIdx.x;
 
+    // flag which shows whether change we a centroid
     flag = false;
 
     if(idx < k) {
 
         int idxd = idx * d;
         for(int i = 0; i < d; ++i) {
+            if(d_counts[idx != 0]) {
 
-            float new_centroid = d_sums[idxd + i] / d_counts[idx];
+                // calculate new centroid
+                // compare it with an old one
+                float new_centroid = d_sums[idxd + i] / d_counts[idx];
 
-            if(new_centroid != d_centroids[idxd + i]) {
-                flag = true;
-                d_centroids[idxd + i] = new_centroid;
+                if(new_centroid != d_centroids[idxd + i]) {
+                    flag = true;
+                    d_centroids[idxd + i] = new_centroid;
+                }
             }
-
         }
     }
 
 }
 
 
-//__global__ void calculate_error(int *d_errors, const int k, )
-
-
-KMeans::KMeans(float *h_params, const int &&k, const unsigned h, const unsigned w) {
+KMeans::KMeans(
+    float *h_params, 
+    const int &&k, 
+    const unsigned h, 
+    const unsigned w) {
 
     this->h_ = h;
     this->w_ = w;
@@ -124,7 +134,6 @@ KMeans::KMeans(float *h_params, const int &&k, const unsigned h, const unsigned 
     }
 
     h_data_ = new float[w*h];
-    h_errors_ = new int[k*k];
 
     for(unsigned i = 0; i < w*h; ++i) {
         float dif = maxs[i%w] - mins[i%w];
@@ -155,7 +164,6 @@ KMeans::KMeans(float *h_params, const int &&k, const unsigned h, const unsigned 
     CUDA_CHECK(cudaMalloc(&d_centroids_, k*sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_sums_, k_ * w_ * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_counts_, k * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_errors_, k*k*sizeof(int)));
 
 
     CUDA_CHECK(cudaMemcpy(d_data_, h_data_, w*h*sizeof(float), cudaMemcpyHostToDevice));
@@ -175,18 +183,21 @@ KMeans::~KMeans() {
 }
 
 void KMeans::fit(int iters) {
-    
+    // initialize sums and counts with 0
     CUDA_CHECK(cudaMemset(d_sums_, 0, w_ * k_ * sizeof(float)));
     CUDA_CHECK(cudaMemset(d_counts_, 0, k_ * sizeof(int)));
 
     int threads_per_block = static_cast<int>(pow(2, ceil(log2(w_))));
     int blocks = (h_ + threads_per_block - 1) / threads_per_block;
-    size_t shared_mem_size = 2*k_*w_ + k_;
+    size_t shared_mem_size = 3*k_*w_;
 
     bool h_flag = false;
     bool *d_flag;
     CUDA_CHECK(cudaMalloc(&d_flag, sizeof(float)));
 
+    // we have 2 options:
+    // 1. we have to make all iterations to calculate good centroids
+    // 2. we can find the best ones early
     for(int i = 0; i < iters; ++i) {
 
         sum_and_counts<<<blocks, threads_per_block, shared_mem_size>>>(d_data_, d_centroids_, d_sums_, d_counts_, h_, w_, k_);
@@ -201,6 +212,7 @@ void KMeans::fit(int iters) {
 
         CUDA_CHECK(cudaMemcpy(&h_flag, d_flag, sizeof(bool), cudaMemcpyDeviceToHost));
 
+        // true if a centroid was changed
         if(!h_flag) {
             break;
         }
@@ -210,21 +222,22 @@ void KMeans::fit(int iters) {
 }
 
 
-
-std::vector<int> KMeans::prediction() {
+// return number for each cluster
+std::vector<int> KMeans::predict() {
 
     std::vector<int> preds;
-
     for(int i = 0; i < h_; ++i) {
 
         int best_cluster = 0;
         float dist = 0;
         
+        // calculate dist
         for(int j = 0; j < w_; ++j) {
             dist += pow(h_data_[i*w_ + j] - h_centroids_[j], 2);
         }
         float min_dist = dist;
 
+        // search for the best cluster
         for(int c = 1; c < k_; ++c) {
             dist = 0;
 
@@ -238,12 +251,9 @@ std::vector<int> KMeans::prediction() {
             }
         }
 
+        // push the number of the best cluster
         preds.push_back(best_cluster);
     }
 
     return preds;
-}
-
-void KMeans::matrix_error() {
-
 }

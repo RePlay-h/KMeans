@@ -12,9 +12,7 @@ public:
 
     void fit(int iters);
 
-    std::vector<int> prediction();
-
-    void matrix_error();
+    std::vector<int> predict();
 
 
 private:
@@ -29,9 +27,6 @@ private:
 
     float *d_sums_;
     int *d_counts_;
-
-    int *h_errors_;
-    int *d_errors_;
 
 };
 
